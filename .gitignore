@@ -1,0 +1,21 @@
+# Dependensi Node.js
+node_modules/
+
+# Build output Next.js
+.next/
+out/
+
+# Berkas lingkungan (jangan pernah commit kredensial)
+.env
+.env*.local
+.env*.local.*
+
+# Arsip ZIP yang dihasilkan saat pengemasan
+*.zip
+
+# Konfigurasi deploy Vercel
+.vercel/
+
+# Berkas sistem dan log
+.DS_Store
+*.log
