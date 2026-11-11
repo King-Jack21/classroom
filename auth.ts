@@ -13,38 +13,49 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   secret: process.env.AUTH_SECRET,
   pages: { signIn: "/login" },
   callbacks: {
-    async signIn({ user, profile }) {
+    async signIn({ user, profile, account }) {
+      const uid = (profile?.sub as string | undefined) ?? user?.id;
+      if (!profile?.email || !uid) {
+        console.error("[auth] signIn: missing email or uid", {
+          hasEmail: !!profile?.email,
+          hasUid: !!uid,
+        });
+        return false;
+      }
       try {
-        if (profile?.email && user?.id) {
-          const upserted = await upsertGoogleUser({
-            uid: user.id,
-            name: user.name ?? profile.name ?? "Pengguna",
-            email: profile.email,
-            image:
-              (profile as { picture?: string | null }).picture ?? user.image ?? null,
-          });
-          await logActivity(upserted.uid, "login");
-        }
-      } catch {
-        // Kegagalan Redis saat callback tidak menggagalkan login;
-        // data profil diverifikasi ulang di server component via requireUser.
+        const upserted = await upsertGoogleUser({
+          uid,
+          name: user.name ?? profile.name ?? "Pengguna",
+          email: profile.email,
+          image:
+            (profile as { picture?: string | null }).picture ?? user.image ?? null,
+        });
+        await logActivity(upserted.uid, "login");
+      } catch (err) {
+        console.error("[auth] signIn upsert failed", err);
+        return false; // JANGAN return true kalau persist gagal
       }
       return true;
     },
-    async jwt({ token, user }) {
-      if (user?.id) {
-        token.uid = user.id;
-      }
+    async jwt({ token, user, profile }) {
+      const uid =
+        (profile?.sub as string | undefined) ??
+        (user as { id?: string } | undefined)?.id ??
+        (token.uid as string | undefined);
+      if (uid) token.uid = uid;
       return token;
     },
     async session({ session, token }) {
-      (session.user as { uid?: string }).uid = token.uid as string | undefined;
-      // Pengambilan role dari Redis hanya dijalankan di runtime Node (server component/route),
-      // bukan di middleware edge.
-      if (process.env.NEXT_RUNTIME === "nodejs" && token.uid) {
-        const u = await getUserById(token.uid as string);
-        if (u) {
-          (session as { role?: string }).role = u.role;
+      const uid = token.uid as string | undefined;
+      if (uid) {
+        (session.user as { uid?: string }).uid = uid;
+        if (process.env.NEXT_RUNTIME === "nodejs") {
+          try {
+            const u = await getUserById(uid);
+            if (u) (session as { role?: string }).role = u.role;
+          } catch (err) {
+            console.error("[auth] session role lookup failed", err);
+          }
         }
       }
       return session;
